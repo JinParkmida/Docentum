@@ -1,8 +1,12 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { ThesisSection } from '../types';
 
-// Initialize PDF.js worker with the correct worker source
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.js';
+// Initialize PDF.js worker
+const workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.js',
+  import.meta.url
+).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 interface TextContent {
   items: Array<{
@@ -21,46 +25,49 @@ interface ProcessedSection {
 }
 
 export async function processPdf(file: File): Promise<ThesisSection[]> {
+  console.log('Starting PDF processing:', file.name);
+  
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
-    const numPages = pdf.numPages;
+    console.log('File loaded into ArrayBuffer');
     
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    console.log('PDF loading task created');
+    
+    const pdf = await loadingTask.promise;
+    console.log(`PDF loaded successfully. Total pages: ${pdf.numPages}`);
+    
+    const numPages = pdf.numPages;
     let sections: ProcessedSection[] = [];
     let currentSection: ProcessedSection | null = null;
     
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      console.log(`Processing page ${pageNum}/${numPages}`);
       const page = await pdf.getPage(pageNum);
       const textContent = await page.getTextContent() as TextContent;
       
       for (const item of textContent.items) {
         const { str, fontName, transform } = item;
-        const fontSize = transform[0]; // Scale factor represents font size
+        const fontSize = transform[0];
         
-        // Skip empty strings
         if (!str.trim()) continue;
         
-        // Detect headers based on font size and name
         const isHeader = fontSize > 12 || (fontName && /bold|header/i.test(fontName));
         
         if (isHeader) {
-          // Save previous section if exists
+          console.log(`Found header: "${str.trim()}" (fontSize: ${fontSize})`);
           if (currentSection) {
             sections.push(currentSection);
           }
           
-          // Start new section
           currentSection = {
             title: str.trim(),
             content: '',
-            level: Math.max(1, Math.min(3, Math.floor(16 / fontSize))) // Convert font size to heading level
+            level: Math.max(1, Math.min(3, Math.floor(16 / fontSize)))
           };
         } else if (currentSection) {
-          // Add content to current section
           currentSection.content += str + ' ';
         } else {
-          // Create default section for initial content
           currentSection = {
             title: 'Introduction',
             content: str + ' ',
@@ -70,25 +77,25 @@ export async function processPdf(file: File): Promise<ThesisSection[]> {
       }
     }
     
-    // Add the last section
     if (currentSection) {
       sections.push(currentSection);
     }
     
-    // Clean up sections
     sections = sections.map(section => ({
       ...section,
       content: section.content.trim().replace(/\s+/g, ' ')
     }));
     
+    console.log('PDF processing completed successfully');
     return convertToThesisSections(sections);
   } catch (error) {
     console.error('PDF processing error:', error);
-    throw new Error('Failed to process PDF. Please ensure the file is a valid PDF document.');
+    throw new Error(`Failed to process PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 function convertToThesisSections(processed: ProcessedSection[]): ThesisSection[] {
+  console.log('Converting processed sections to thesis format');
   const result: ThesisSection[] = [];
   const stack: { section: ThesisSection; level: number }[] = [];
   
@@ -99,15 +106,11 @@ function convertToThesisSections(processed: ProcessedSection[]): ThesisSection[]
       content: section.content,
       version: 1,
       lastUpdated: new Date().toISOString(),
-      credibilityScore: 0.85, // Default score
+      credibilityScore: 0.85,
       subsections: []
     };
     
-    // Find appropriate parent based on heading level
-    while (
-      stack.length > 0 && 
-      stack[stack.length - 1].level >= section.level
-    ) {
+    while (stack.length > 0 && stack[stack.length - 1].level >= section.level) {
       stack.pop();
     }
     
@@ -124,5 +127,6 @@ function convertToThesisSections(processed: ProcessedSection[]): ThesisSection[]
     stack.push({ section: thesisSection, level: section.level });
   });
   
+  console.log('Conversion completed:', result);
   return result;
 }

@@ -1,6 +1,6 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, X } from 'lucide-react';
+import { Upload, FileText, X, Loader } from 'lucide-react';
 import Button from '../ui/Button';
 import { processPdf } from '../../utils/pdfProcessor';
 
@@ -10,15 +10,24 @@ interface PdfUploaderProps {
 }
 
 export const PdfUploader: React.FC<PdfUploaderProps> = ({ onProcessComplete, onError }) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     try {
       const file = acceptedFiles[0];
       if (!file) return;
 
+      setIsProcessing(true);
+      console.log('Starting PDF processing for file:', file.name);
+
       const data = await processPdf(file);
+      console.log('PDF processing completed successfully');
       onProcessComplete(data);
     } catch (error) {
+      console.error('PDF processing error:', error);
       onError(error instanceof Error ? error.message : 'Failed to process PDF');
+    } finally {
+      setIsProcessing(false);
     }
   }, [onProcessComplete, onError]);
 
@@ -27,7 +36,8 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({ onProcessComplete, onE
     accept: {
       'application/pdf': ['.pdf']
     },
-    maxFiles: 1
+    maxFiles: 1,
+    maxSize: 50 * 1024 * 1024 // 50MB
   });
 
   return (
@@ -42,13 +52,19 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({ onProcessComplete, onE
       >
         <input {...getInputProps()} />
         <div className="flex flex-col items-center gap-3">
-          <Upload
-            className={`w-12 h-12 ${
-              isDragActive ? 'text-slate-600' : 'text-slate-400'
-            }`}
-          />
+          {isProcessing ? (
+            <Loader className="w-12 h-12 text-slate-400 animate-spin" />
+          ) : (
+            <Upload
+              className={`w-12 h-12 ${
+                isDragActive ? 'text-slate-600' : 'text-slate-400'
+              }`}
+            />
+          )}
           <div className="text-sm">
-            {isDragActive ? (
+            {isProcessing ? (
+              <p className="text-slate-600 font-medium">Processing PDF...</p>
+            ) : isDragActive ? (
               <p className="text-slate-600 font-medium">Drop your thesis PDF here</p>
             ) : (
               <p className="text-slate-500">
@@ -63,7 +79,7 @@ export const PdfUploader: React.FC<PdfUploaderProps> = ({ onProcessComplete, onE
         </div>
       </div>
 
-      {acceptedFiles.length > 0 && (
+      {acceptedFiles.length > 0 && !isProcessing && (
         <div className="mt-4">
           <div className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center gap-3">
